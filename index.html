@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <title>ระบบเบิกของ RIA Paperless</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background: #f5f6fa;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 460px;
+            margin: 36px auto;
+            background: #fff;
+            border-radius: 16px;
+            box-shadow: 0 2px 16px #d3d3d3;
+            padding: 32px;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        label {
+            font-weight: 500;
+            display: block;
+            margin-top: 16px;
+        }
+
+        input,
+        select,
+        textarea {
+            width: 100%;
+            margin-top: 4px;
+            margin-bottom: 8px;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            padding: 12px 28px;
+            border-radius: 8px;
+            border: none;
+            color: #fff;
+            background: #005bbb;
+            font-size: 1rem;
+            cursor: pointer;
+            margin-top: 8px;
+        }
+
+        button:disabled {
+            background: #bbb;
+        }
+
+        .status {
+            margin: 12px 0;
+        }
+
+        .success {
+            color: #00851a;
+        }
+
+        .error {
+            color: #b20000;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h2>ระบบเบิกของ RIA Paperless</h2>
+
+        <!-- ตั้งค่า Script URL -->
+        <label>Google Apps Script URL</label>
+        <input type="url" id="scriptUrl"
+            placeholder="https://script.google.com/macros/s/AKfycbzn3RC24XChafjx1N04YgoQzRyfIZNFB_pTux8-C-5PAaUwq8qym_v9QBPb3FVPUdvp/exec">
+        <button onclick="testConnection()">ทดสอบการเชื่อมต่อ</button>
+        <div id="connStatus" class="status"></div>
+
+        <hr style="margin: 32px 0;">
+
+        <!-- ฟอร์มขอเบิกของ -->
+        <form id="requestForm" autocomplete="off">
+            <h3>ขอเบิกของ</h3>
+
+            <label>ชื่อผู้ขอ</label>
+            <input type="text" id="requester" required placeholder="กรอกชื่อ-สกุล">
+
+            <label>รายการ</label>
+            <select id="item">
+                <option value="">-- เลือก --</option>
+                <option value="กระดาษ A4">กระดาษ A4</option>
+                <option value="ปากกา">ปากกา</option>
+                <option value="อื่นๆ">อื่นๆ (กรอกด้านล่าง)</option>
+            </select>
+            <input type="text" id="otherItem" placeholder="ระบุรายการ (ถ้าเลือก อื่นๆ )" style="display:none;">
+
+            <label>จำนวน</label>
+            <input type="number" id="quantity" min="1" required>
+
+            <label>แผนก</label>
+            <select id="department">
+                <option value="">-- เลือก --</option>
+                <option value="ไอที">ไอที</option>
+                <option value="บัญชี">บัญชี</option>
+                <option value="การตลาด">การตลาด</option>
+            </select>
+
+            <label>หมายเหตุ</label>
+            <textarea id="notes"></textarea>
+
+            <button type="submit">ส่งคำขอเบิกของ</button>
+            <div id="formStatus" class="status"></div>
+        </form>
+    </div>
+
+    <script>
+        let scriptUrl = '';
+
+        // โชว์/ซ่อนช่อง "ระบุรายการอื่นๆ" อัตโนมัติ
+        document.getElementById('item').addEventListener('change', function () {
+            const otherInput = document.getElementById('otherItem');
+            if (this.value === 'อื่นๆ') {
+                otherInput.style.display = '';
+                otherInput.focus();
+            } else {
+                otherInput.style.display = 'none';
+                otherInput.value = '';
+            }
+        });
+
+        // ทดสอบการเชื่อมต่อ Apps Script
+        async function testConnection() {
+            scriptUrl = document.getElementById('scriptUrl').value.trim();
+            const statusDiv = document.getElementById('connStatus');
+            statusDiv.innerHTML = '⏳ กำลังทดสอบ...';
+
+            if (!scriptUrl) {
+                statusDiv.innerHTML = '<span class="error">กรุณากรอก Script URL</span>';
+                return;
+            }
+
+            try {
+                const res = await fetch(scriptUrl + '?action=testConnection');
+                const data = await res.json();
+                if (data.success) {
+                    statusDiv.innerHTML = '<span class="success">✅ เชื่อมต่อสำเร็จ: ' + data.data.spreadsheetName + '</span>';
+                } else {
+                    statusDiv.innerHTML = '<span class="error">❌ ' + data.message + '</span>';
+                }
+            } catch (err) {
+                statusDiv.innerHTML = '<span class="error">❌ ' + err + '</span>';
+            }
+        }
+
+        // ส่งฟอร์มขอเบิกของ
+        document.getElementById('requestForm').addEventListener('submit', async function (e) {
+            e.preventDefault();
+            scriptUrl = document.getElementById('scriptUrl').value.trim();
+            const statusDiv = document.getElementById('formStatus');
+            statusDiv.innerHTML = '';
+
+            // ตรวจสอบข้อมูล
+            const requester = document.getElementById('requester').value.trim();
+            let item = document.getElementById('item').value;
+            const otherItem = document.getElementById('otherItem').value.trim();
+            const quantity = document.getElementById('quantity').value;
+            const department = document.getElementById('department').value;
+            const notes = document.getElementById('notes').value;
+
+            if (!requester) {
+                statusDiv.innerHTML = '<span class="error">กรุณากรอกชื่อผู้ขอ</span>';
+                return;
+            }
+            if (!item) {
+                statusDiv.innerHTML = '<span class="error">กรุณาเลือกรายการ</span>';
+                return;
+            }
+            if (item === 'อื่นๆ' && !otherItem) {
+                statusDiv.innerHTML = '<span class="error">กรุณาระบุรายการอื่นๆ</span>';
+                return;
+            }
+            if (!quantity || quantity < 1) {
+                statusDiv.innerHTML = '<span class="error">กรุณากรอกจำนวน</span>';
+                return;
+            }
+            if (!department) {
+                statusDiv.innerHTML = '<span class="error">กรุณาเลือกแผนก</span>';
+                return;
+            }
+            if (!scriptUrl) {
+                statusDiv.innerHTML = '<span class="error">กรุณากรอก Script URL และทดสอบก่อนส่งข้อมูล</span>';
+                return;
+            }
+            if (item === 'อื่นๆ') item = otherItem;
+
+            // เตรียม request object
+            const requestObj = {
+                date: new Date().toLocaleDateString('th-TH'),
+                requester,
+                department,
+                item,
+                quantity,
+                notes,
+                approvedBy: '',
+                approvedDate: ''
+            };
+
+            statusDiv.innerHTML = '⏳ กำลังส่ง...';
+            try {
+                const res = await fetch(scriptUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }, // สำคัญมาก!
+                    body: JSON.stringify({
+                        action: 'saveApprovedRequest',
+                        request: requestObj
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    statusDiv.innerHTML = '<span class="success">✅ ส่งคำขอสำเร็จ</span>';
+                    document.getElementById('requestForm').reset();
+                    document.getElementById('otherItem').style.display = 'none';
+                } else {
+                    statusDiv.innerHTML = '<span class="error">❌ ' + data.message + '</span>';
+                }
+            } catch (err) {
+                statusDiv.innerHTML = '<span class="error">❌ ' + err + '</span>';
+            }
+        });
+    </script>
+</body>
+</html>
